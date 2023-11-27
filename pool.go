@@ -15,12 +15,16 @@ type Pool[T any] struct {
 }
 
 type PoolElem[T any] struct {
+	from  *sync.Pool
 	refs  atomic.Int32
 	value T
 }
 
 func (p *PoolElem[T]) Put() bool {
 	if c := p.refs.Add(-1); c == 0 {
+		if p.from != nil {
+			p.from.Put(p)
+		}
 		return true
 	} else if c < 0 {
 		panic("bad put")
@@ -39,12 +43,15 @@ func NewPool[T any](
 	pool := &Pool[T]{
 		capacity: capacity,
 		newFunc:  newFunc,
-		fallback: sync.Pool{
-			New: func() any {
-				var elem PoolElem[T]
-				elem.value = newFunc()
-				return &elem
-			},
+	}
+
+	pool.fallback = sync.Pool{
+		New: func() any {
+			elem := &PoolElem[T]{
+				value: newFunc(),
+				from:  &pool.fallback,
+			}
+			return elem
 		},
 	}
 

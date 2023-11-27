@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math/rand"
-	"runtime"
 	"sync"
 	"testing"
 )
@@ -148,7 +147,7 @@ func TestPoolBadPutRC(t *testing.T) {
 }
 
 func BenchmarkPoolDrain(b *testing.B) {
-	pool := NewPool(uint32(runtime.NumCPU()), func() []byte {
+	pool := NewPool(1, func() []byte {
 		return make([]byte, 8)
 	})
 	b.ResetTimer()
