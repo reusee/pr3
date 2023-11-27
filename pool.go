@@ -70,12 +70,10 @@ func NewPool[T any](
 
 func (p *Pool[T]) Get(ptr *T) *PoolElem[T] {
 
-	for i := 0; i < 16; i++ {
-		idx := fastrand() % p.capacity
-		if p.elems[idx].refs.CompareAndSwap(0, 1) {
-			*ptr = p.elems[idx].value
-			return &p.elems[idx]
-		}
+	idx := fastrand() % p.capacity
+	if p.elems[idx].refs.CompareAndSwap(0, 1) {
+		*ptr = p.elems[idx].value
+		return &p.elems[idx]
 	}
 
 	// fallback
