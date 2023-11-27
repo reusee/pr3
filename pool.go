@@ -9,8 +9,9 @@ import (
 type Pool[T any] struct {
 	l        sync.Mutex
 	newFunc  func() T
-	elems    atomic.Pointer[[]_PoolElem[T]]
+	elems    []_PoolElem[T]
 	capacity uint32
+	fallback sync.Pool
 }
 
 type _PoolElem[T any] struct {
@@ -27,22 +28,30 @@ func NewPool[T any](
 	pool := &Pool[T]{
 		capacity: capacity,
 		newFunc:  newFunc,
+		fallback: sync.Pool{
+			New: func() any {
+				var elem _PoolElem[T]
+				elem.value = newFunc()
+				elem.put = func() bool {
+					if c := elem.refs.Add(-1); c == 0 {
+						return true
+					} else if c < 0 {
+						panic("bad put")
+					}
+					return false
+				}
+				elem.incRef = func() {
+					elem.refs.Add(1)
+				}
+				return &elem
+			},
+		},
 	}
-	pool.allocElems(nil)
-	return pool
-}
 
-func (p *Pool[T]) allocElems(old *[]_PoolElem[T]) {
-	p.l.Lock()
-	defer p.l.Unlock()
-	if old != nil && p.elems.Load() != old {
-		// refreshed
-		return
-	}
-	elems := make([]_PoolElem[T], p.capacity)
-	for i := uint32(0); i < p.capacity; i++ {
+	elems := make([]_PoolElem[T], capacity)
+	for i := uint32(0); i < capacity; i++ {
 		i := i
-		ptr := p.newFunc()
+		ptr := newFunc()
 		elems[i] = _PoolElem[T]{
 			value: ptr,
 			put: func() bool {
@@ -58,7 +67,9 @@ func (p *Pool[T]) allocElems(old *[]_PoolElem[T]) {
 			},
 		}
 	}
-	p.elems.Store(&elems)
+	pool.elems = elems
+
+	return pool
 }
 
 func (p *Pool[T]) Get(ptr *T) (put func() bool) {
@@ -71,22 +82,23 @@ func (p *Pool[T]) GetRC(ptr *T) (
 	incRef func(),
 ) {
 
-	for {
-		cur := p.elems.Load()
-		elems := *cur
-		for i := 0; i < 16; i++ {
-			idx := fastrand() % p.capacity
-			if elems[idx].refs.CompareAndSwap(0, 1) {
-				*ptr = elems[idx].value
-				put = elems[idx].put
-				incRef = elems[idx].incRef
-				return
-			}
+	for i := 0; i < 16; i++ {
+		idx := fastrand() % p.capacity
+		if p.elems[idx].refs.CompareAndSwap(0, 1) {
+			*ptr = p.elems[idx].value
+			put = p.elems[idx].put
+			incRef = p.elems[idx].incRef
+			return
 		}
-
-		p.allocElems(cur)
 	}
 
+	// fallback
+	elem := p.fallback.Get().(*_PoolElem[T])
+	elem.refs.Store(1)
+	*ptr = elem.value
+	put = elem.put
+	incRef = elem.incRef
+	return
 }
 
 //go:linkname fastrand runtime.fastrand
