@@ -9,17 +9,17 @@ import (
 type Pool[T any] struct {
 	l        sync.Mutex
 	newFunc  func() T
-	elems    []_PoolElem[T]
+	elems    []PoolElem[T]
 	capacity uint32
 	fallback sync.Pool
 }
 
-type _PoolElem[T any] struct {
+type PoolElem[T any] struct {
 	refs  atomic.Int32
 	value T
 }
 
-func (p *_PoolElem[T]) Put() bool {
+func (p *PoolElem[T]) Put() bool {
 	if c := p.refs.Add(-1); c == 0 {
 		return true
 	} else if c < 0 {
@@ -28,7 +28,7 @@ func (p *_PoolElem[T]) Put() bool {
 	return false
 }
 
-func (p *_PoolElem[T]) Inc() {
+func (p *PoolElem[T]) Inc() {
 	p.refs.Add(1)
 }
 
@@ -41,18 +41,18 @@ func NewPool[T any](
 		newFunc:  newFunc,
 		fallback: sync.Pool{
 			New: func() any {
-				var elem _PoolElem[T]
+				var elem PoolElem[T]
 				elem.value = newFunc()
 				return &elem
 			},
 		},
 	}
 
-	elems := make([]_PoolElem[T], capacity)
+	elems := make([]PoolElem[T], capacity)
 	for i := uint32(0); i < capacity; i++ {
 		i := i
 		ptr := newFunc()
-		elems[i] = _PoolElem[T]{
+		elems[i] = PoolElem[T]{
 			value: ptr,
 		}
 	}
@@ -61,7 +61,7 @@ func NewPool[T any](
 	return pool
 }
 
-func (p *Pool[T]) Get(ptr *T) *_PoolElem[T] {
+func (p *Pool[T]) Get(ptr *T) *PoolElem[T] {
 
 	for i := 0; i < 16; i++ {
 		idx := fastrand() % p.capacity
@@ -72,7 +72,7 @@ func (p *Pool[T]) Get(ptr *T) *_PoolElem[T] {
 	}
 
 	// fallback
-	elem := p.fallback.Get().(*_PoolElem[T])
+	elem := p.fallback.Get().(*PoolElem[T])
 	elem.refs.Store(1)
 	*ptr = elem.value
 	return elem
