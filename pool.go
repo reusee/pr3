@@ -15,10 +15,21 @@ type Pool[T any] struct {
 }
 
 type _PoolElem[T any] struct {
-	refs   atomic.Int32
-	put    func() bool
-	incRef func()
-	value  T
+	refs  atomic.Int32
+	value T
+}
+
+func (p *_PoolElem[T]) Put() bool {
+	if c := p.refs.Add(-1); c == 0 {
+		return true
+	} else if c < 0 {
+		panic("bad put")
+	}
+	return false
+}
+
+func (p *_PoolElem[T]) Inc() {
+	p.refs.Add(1)
 }
 
 func NewPool[T any](
@@ -32,17 +43,6 @@ func NewPool[T any](
 			New: func() any {
 				var elem _PoolElem[T]
 				elem.value = newFunc()
-				elem.put = func() bool {
-					if c := elem.refs.Add(-1); c == 0 {
-						return true
-					} else if c < 0 {
-						panic("bad put")
-					}
-					return false
-				}
-				elem.incRef = func() {
-					elem.refs.Add(1)
-				}
 				return &elem
 			},
 		},
@@ -54,17 +54,6 @@ func NewPool[T any](
 		ptr := newFunc()
 		elems[i] = _PoolElem[T]{
 			value: ptr,
-			put: func() bool {
-				if c := elems[i].refs.Add(-1); c == 0 {
-					return true
-				} else if c < 0 {
-					panic("bad put")
-				}
-				return false
-			},
-			incRef: func() {
-				elems[i].refs.Add(1)
-			},
 		}
 	}
 	pool.elems = elems
@@ -72,23 +61,13 @@ func NewPool[T any](
 	return pool
 }
 
-func (p *Pool[T]) Get(ptr *T) (put func() bool) {
-	put, _ = p.GetRC(ptr)
-	return
-}
-
-func (p *Pool[T]) GetRC(ptr *T) (
-	put func() bool,
-	incRef func(),
-) {
+func (p *Pool[T]) Get(ptr *T) *_PoolElem[T] {
 
 	for i := 0; i < 16; i++ {
 		idx := fastrand() % p.capacity
 		if p.elems[idx].refs.CompareAndSwap(0, 1) {
 			*ptr = p.elems[idx].value
-			put = p.elems[idx].put
-			incRef = p.elems[idx].incRef
-			return
+			return &p.elems[idx]
 		}
 	}
 
@@ -96,9 +75,7 @@ func (p *Pool[T]) GetRC(ptr *T) (
 	elem := p.fallback.Get().(*_PoolElem[T])
 	elem.refs.Store(1)
 	*ptr = elem.value
-	put = elem.put
-	incRef = elem.incRef
-	return
+	return elem
 }
 
 //go:linkname fastrand runtime.fastrand
