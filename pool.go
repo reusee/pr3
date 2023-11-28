@@ -1,28 +1,39 @@
 package pr3
 
 import (
-	"sync"
+	"runtime"
 	"sync/atomic"
 	_ "unsafe"
 )
 
 type Pool[T any] struct {
-	elems    []PoolElem[T]
-	capacity uint32
-	fallback sync.Pool
+	shards      []*PoolElem[T]
+	maxPerShard int
+	newFunc     func() T
 }
 
 type PoolElem[T any] struct {
-	from  *sync.Pool
 	refs  atomic.Int32
 	value T
+	next  *PoolElem[T]
+	num   int
 }
 
-func (p *PoolElem[T]) Put() bool {
-	if c := p.refs.Add(-1); c == 0 {
-		if p.from != nil {
-			p.from.Put(p)
+func (p *Pool[T]) Put(elem *PoolElem[T]) bool {
+	if c := elem.refs.Add(-1); c == 0 {
+		procID := procPin()
+		if procID < len(p.shards) {
+			if head := p.shards[procID]; head == nil {
+				elem.num = 0
+				elem.next = nil
+				p.shards[procID] = elem
+			} else if head.num < p.maxPerShard {
+				elem.num = head.num + 1
+				elem.next = head
+				p.shards[procID] = elem
+			}
 		}
+		procUnpin()
 		return true
 	} else if c < 0 {
 		panic("bad put")
@@ -35,46 +46,40 @@ func (p *PoolElem[T]) Inc() {
 }
 
 func NewPool[T any](
-	capacity uint32,
+	capacity int,
 	newFunc func() T,
 ) *Pool[T] {
+	maxPerShard := capacity / runtime.NumCPU()
+
 	pool := &Pool[T]{
-		capacity: capacity,
+		maxPerShard: maxPerShard,
+		newFunc:     newFunc,
 	}
 
-	pool.fallback = sync.Pool{
-		New: func() any {
-			elem := &PoolElem[T]{
-				value: newFunc(),
-				from:  &pool.fallback,
-			}
-			return elem
-		},
-	}
-
-	pool.elems = make([]PoolElem[T], capacity)
-	for i := uint32(0); i < capacity; i++ {
-		pool.elems[i].value = newFunc()
-	}
+	pool.shards = make([]*PoolElem[T], runtime.NumCPU())
 
 	return pool
 }
 
-func (p *Pool[T]) Get(ptr *T) *PoolElem[T] {
-	idx := fastrand() % p.capacity
-	if p.elems[idx].refs.CompareAndSwap(0, 1) {
-		*ptr = p.elems[idx].value
-		return &p.elems[idx]
+func (p *Pool[T]) Get(ptr *T) (ret *PoolElem[T]) {
+	procID := procPin()
+	if procID < len(p.shards) && p.shards[procID] != nil {
+		ret = p.shards[procID]
+		p.shards[procID] = p.shards[procID].next
 	}
-	return p.fallbackGet(ptr)
+	procUnpin()
+	if ret == nil {
+		ret = &PoolElem[T]{
+			value: p.newFunc(),
+		}
+	}
+	ret.refs.Store(1)
+	*ptr = ret.value
+	return
 }
 
-func (p *Pool[T]) fallbackGet(ptr *T) *PoolElem[T] {
-	elem := p.fallback.Get().(*PoolElem[T])
-	elem.refs.Store(1)
-	*ptr = elem.value
-	return elem
-}
+//go:linkname procPin runtime.procPin
+func procPin() int
 
-//go:linkname fastrand runtime.fastrand
-func fastrand() uint32
+//go:linkname procUnpin runtime.procUnpin
+func procUnpin()

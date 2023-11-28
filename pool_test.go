@@ -21,7 +21,7 @@ func TestBytesPool(t *testing.T) {
 			for j := 0; j < 200; j++ {
 				var bs []byte
 				elem := pool.Get(&bs)
-				defer elem.Put()
+				defer pool.Put(elem)
 				binary.PutUvarint(bs, uint64(i))
 			}
 		}()
@@ -42,7 +42,7 @@ func TestBytesPoolRC(t *testing.T) {
 			for j := 0; j < 200; j++ {
 				var bs []byte
 				elem := pool.Get(&bs)
-				defer elem.Put()
+				defer pool.Put(elem)
 				nRef := rand.Intn(16)
 				for i := 0; i < nRef; i++ {
 					elem.Inc()
@@ -68,10 +68,10 @@ func TestBytesPoolRCOverload(t *testing.T) {
 	var j int
 	elem := pool.Get(&j)
 	elem.Inc()
-	if elem.Put() {
+	if pool.Put(elem) {
 		t.Fatal()
 	}
-	if !elem.Put() {
+	if !pool.Put(elem) {
 		t.Fatal()
 	}
 }
@@ -84,7 +84,7 @@ func BenchmarkBytesPool(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		var v []byte
 		elem := pool.Get(&v)
-		elem.Put()
+		pool.Put(elem)
 	}
 }
 
@@ -97,7 +97,7 @@ func BenchmarkParallelBytesPool(b *testing.B) {
 		for pb.Next() {
 			var v []byte
 			elem := pool.Get(&v)
-			elem.Put()
+			pool.Put(elem)
 		}
 	})
 }
@@ -108,7 +108,7 @@ func TestPoolBadPut(t *testing.T) {
 	})
 	var i int
 	elem := pool.Get(&i)
-	elem.Put()
+	pool.Put(elem)
 	func() {
 		defer func() {
 			p := recover()
@@ -119,7 +119,7 @@ func TestPoolBadPut(t *testing.T) {
 				t.Fatal()
 			}
 		}()
-		elem.Put()
+		pool.Put(elem)
 	}()
 }
 
@@ -131,7 +131,7 @@ func TestPoolBadPutRC(t *testing.T) {
 	pool.Get(&j)
 	var i int
 	elem := pool.Get(&i)
-	elem.Put()
+	pool.Put(elem)
 	func() {
 		defer func() {
 			p := recover()
@@ -142,7 +142,7 @@ func TestPoolBadPutRC(t *testing.T) {
 				t.Fatal()
 			}
 		}()
-		elem.Put()
+		pool.Put(elem)
 	}()
 }
 
@@ -155,13 +155,7 @@ func BenchmarkPoolDrain(b *testing.B) {
 		for pb.Next() {
 			var v []byte
 			elem := pool.Get(&v)
-			elem.Put()
+			pool.Put(elem)
 		}
 	})
-}
-
-func BenchmarkFastrand(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		fastrand()
-	}
 }
