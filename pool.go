@@ -52,15 +52,10 @@ func NewPool[T any](
 		},
 	}
 
-	elems := make([]PoolElem[T], capacity)
+	pool.elems = make([]PoolElem[T], capacity)
 	for i := uint32(0); i < capacity; i++ {
-		i := i
-		ptr := newFunc()
-		elems[i] = PoolElem[T]{
-			value: ptr,
-		}
+		pool.elems[i].value = newFunc()
 	}
-	pool.elems = elems
 
 	return pool
 }
