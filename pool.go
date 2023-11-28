@@ -7,8 +7,6 @@ import (
 )
 
 type Pool[T any] struct {
-	l        sync.Mutex
-	newFunc  func() T
 	elems    []PoolElem[T]
 	capacity uint32
 	fallback sync.Pool
@@ -42,7 +40,6 @@ func NewPool[T any](
 ) *Pool[T] {
 	pool := &Pool[T]{
 		capacity: capacity,
-		newFunc:  newFunc,
 	}
 
 	pool.fallback = sync.Pool{
