@@ -88,6 +88,20 @@ func BenchmarkBytesPool(b *testing.B) {
 	}
 }
 
+func BenchmarkStdSyncPool(b *testing.B) {
+	pool := &sync.Pool{
+		New: func() any {
+			bs := make([]byte, 8)
+			return &bs
+		},
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		elem := pool.Get().(*[]byte)
+		pool.Put(elem)
+	}
+}
+
 func BenchmarkParallelBytesPool(b *testing.B) {
 	pool := NewPool(1024, func() []byte {
 		return make([]byte, 8)
@@ -98,6 +112,22 @@ func BenchmarkParallelBytesPool(b *testing.B) {
 			var v []byte
 			elem := pool.Get(&v)
 			elem.Put()
+		}
+	})
+}
+
+func BenchmarkParallelStdSyncPool(b *testing.B) {
+	pool := &sync.Pool{
+		New: func() any {
+			bs := make([]byte, 8)
+			return &bs
+		},
+	}
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			elem := pool.Get().(*[]byte)
+			pool.Put(elem)
 		}
 	})
 }
